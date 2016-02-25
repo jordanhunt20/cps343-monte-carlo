@@ -10,7 +10,24 @@
 #include <unistd.h>
 #include <gsl/gsl_rng.h>
 #include <cmath>
+#include <pthread.h>
+#include <semaphore.h>
 #include "wtime.h"
+
+#include <iomanip>
+#include <cstdlib>
+#include <list>
+#include "randomInt.h"
+
+
+
+
+
+//============================================================================
+// Global (shared) variables -- shared between all threads
+//============================================================================
+
+sem_t updateTotal;
 
 //----------------------------------------------------------------------------
 // Set up PRNG, generate the desired number of values, estimate pi
@@ -23,7 +40,7 @@
 // Output:
 //    output to stdout
 
-void estimatePi( const long numSamples, bool quiet )
+void estimatePi( const long numSamples, bool quiet, int numThreads )
 {
    // Set up random number generator using PID and system time as seed
    double t1 = wtime();
@@ -63,10 +80,11 @@ void estimatePi( const long numSamples, bool quiet )
 int main( int argc, char* argv[] )
 {
    long numSamples = 10L;     // default number of samples to show
+   int numThreads = 1; 		  // default number of threads
    int c;
    bool quiet = false;
    // Process command line
-   while ( ( c = getopt( argc, argv, "n:q" ) ) != -1 )
+   while ( ( c = getopt( argc, argv, "n:qt:" ) ) != -1 )
    {
        switch( c )
        {
@@ -82,15 +100,23 @@ int main( int argc, char* argv[] )
 		   case 'q':
                quiet = true;
                break;
-			   
+		   case 't':
+			   numThreads = atol( optarg );
+			   if ( numThreads <= 0 ) 
+			   {
+					fprintf( stderr, "number of threads must be positive\n" );
+					fprintf( stderr, "got: %d\n", numThreads );
+					exit( EXIT_FAILURE );
+			   }
+			   break;
            default:
-               fprintf( stderr, "usage: %s [-n NUM_SAMPLES]\n", argv[0] );
+               fprintf( stderr, "default usage: %s [-n NUM_SAMPLES]\n", argv[0] );
                exit( EXIT_FAILURE );
        }
    }
 
     // print the estimate of pi based on the input number of samples
-   estimatePi( numSamples, quiet );
+   estimatePi( numSamples, quiet, numThreads );
 
    // All done
    return 0;
