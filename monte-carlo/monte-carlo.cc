@@ -2,7 +2,7 @@
 // to calculate pi
 // Author: Dr. Jonathan Senning
 // Modified by: Jordan Hunt
-// $Smake: g++ -Wall -O2 -o %F %f wtime.c -lgsl -lgslcblas
+// $Smake: g++ -Wall -O2 -pthread -o %F %f wtime.c -lgsl -lgslcblas
 
 #include <iostream>
 #include <cstdio>
@@ -27,7 +27,10 @@
 // Global (shared) variables -- shared between all threads
 //============================================================================
 
-sem_t updateTotal;
+pthread_mutex_t updateTotal;
+long numSamples = 10L; //default value
+int numThreads = 1; //default value
+double totalCount = 0;
 
 //----------------------------------------------------------------------------
 // Set up PRNG, generate the desired number of values, estimate pi
@@ -40,16 +43,17 @@ sem_t updateTotal;
 // Output:
 //    output to stdout
 
-void estimatePi( const long numSamples, bool quiet, int numThreads )
+void* estimatePi( void* arg)
 {
+   
    // Set up random number generator using PID and system time as seed
-   double t1 = wtime();
+   int numSamplesPerThread = numSamples/numThreads;
    gsl_rng* rng = gsl_rng_alloc( gsl_rng_default );
    gsl_rng_set( rng, 100 * getpid() + time( NULL ) );
    double x, y;
    double count = 0;
    // Get samples and compute estimate of Pi
-   for ( int i = 0; i < numSamples; i++ )
+   for ( int i = 0; i < numSamplesPerThread; i++ )
    {
 	   //printf( "%20.16f\n", gsl_rng_uniform( rng ) );
 	   x = gsl_rng_uniform( rng );
@@ -58,31 +62,22 @@ void estimatePi( const long numSamples, bool quiet, int numThreads )
 	   {
 			count++;
 	   }
-       //printf( "%20.16f\n", gsl_rng_uniform( rng ) );
    }
-   double estimate_of_pi = (4 * count) / numSamples;
-   double error = std::abs(estimate_of_pi - M_PI);
-   double t2 = wtime();
-   double time = t2 - t1;
-   if (quiet) 
-   {
-      printf( "%12.10f %10.3e %10.6f %ld\n", estimate_of_pi, error, time, numSamples); 
-   } else
-   {   
-      printf( "Pi: %12.10f, error: %10.3e, seconds: %g, samples: %ld\n", estimate_of_pi, error, time, numSamples);
-   }
+	pthread_mutex_lock( &updateTotal );
+	totalCount += count;
+	pthread_mutex_unlock( &updateTotal );
+   
    // Clean up
    gsl_rng_free( rng );
+	pthread_exit( NULL );
 }
 
 //----------------------------------------------------------------------------
 
 int main( int argc, char* argv[] )
 {
-   long numSamples = 10L;     // default number of samples to show
-   int numThreads = 1; 		  // default number of threads
    int c;
-   bool quiet = false;
+	bool quiet = false;
    // Process command line
    while ( ( c = getopt( argc, argv, "n:qt:" ) ) != -1 )
    {
@@ -116,8 +111,36 @@ int main( int argc, char* argv[] )
    }
 
     // print the estimate of pi based on the input number of samples
-   estimatePi( numSamples, quiet, numThreads );
-
+   //estimatePi( numSamples, quiet ); //serial
+	
+	//parallel
+	double t1 = wtime();
+	pthread_t* threadID = new pthread_t [numThreads];
+	
+   for ( int n = 0; n < numThreads; n++ )
+	{
+		pthread_create( &threadID[n], NULL, estimatePi, NULL );
+	}
+	
+	for ( int n = 0; n < numThreads; n++ )
+   {
+      pthread_join( threadID[n], NULL );
+   }
+   delete [] threadID;
+	
+	double t2 = wtime();
+   double time = t2 - t1;
+	double estimate_of_pi = (4 * totalCount) / numSamples;
+   double error = std::abs(estimate_of_pi - M_PI);
+   
+   if (quiet) 
+   {
+      printf( "%12.10f %10.3e %10.6f %ld\n", estimate_of_pi, error, time, numSamples); 
+   } else
+   {   
+      printf( "Pi: %12.10f, error: %10.3e, seconds: %g, samples: %ld\n", estimate_of_pi, error, time, numSamples);
+   }
+	
    // All done
    return 0;
 }
